@@ -1,7 +1,0 @@
-# JSON 6902 patch: Solr storage (1 VolumeClaimTemplate: data)
-- op: replace
-  path: /spec/volumeClaimTemplates/0/spec/storageClassName
-  value: hostpath
-- op: replace
-  path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
-  value: 5Gi
