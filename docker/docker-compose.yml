@@ -1,0 +1,117 @@
+---
+# =============================================================================
+# docker-compose.yml — Sitecore 10.4.0 XM1 Solr/ZooKeeper (single-node dev)
+#
+# Starts a single-node ZooKeeper + single-node SolrCloud + init container.
+# No Kubernetes required — works with plain Docker Desktop.
+#
+# Usage:
+#   cp docker/.env.example docker/.env   # first time only
+#   docker compose up -d
+#   # Wait ~60s for init to complete, then visit:
+#   # http://localhost:8983/solr  (login: value of SOLR_ADMIN_USER/PASSWORD in .env)
+#
+#   docker compose down          # stop and remove containers
+#   docker compose down -v       # also remove volumes (wipes Solr data)
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # ZooKeeper — coordination service for SolrCloud
+  # ---------------------------------------------------------------------------
+  zookeeper:
+    image: ${ZK_IMAGE:-zookeeper:3.8}
+    container_name: sitecore-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOO_STANDALONE_ENABLED: "false"
+      ZOO_4LW_COMMANDS_WHITELIST: "mntr,conf,ruok"
+    ports:
+      - "${ZK_PORT:-2181}:2181"
+    volumes:
+      - zookeeper-data:/data
+      - zookeeper-datalog:/datalog
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 127.0.0.1 2181 | grep -q imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # Solr — SolrCloud node (points to ZooKeeper above)
+  # ---------------------------------------------------------------------------
+  solr:
+    image: ${SOLR_IMAGE:-solr:8.11.2}
+    container_name: sitecore-solr
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      ZK_HOST: "zookeeper:2181"
+      SOLR_JAVA_MEM: "${SOLR_JAVA_MEM:--Xms512m -Xmx1g}"
+      SOLR_MAX_FIELDS: "3000"
+      # Loads jwt-auth module so the Entra ID migration path is ready
+      SOLR_OPTS: "-Dsolr.modules=jwt-auth"
+    ports:
+      - "${SOLR_PORT:-8983}:8983"
+    volumes:
+      - solr-data:/var/solr
+    healthcheck:
+      # Accept both 200 (no auth yet) and 401 (auth enabled) as "healthy".
+      test: ["CMD-SHELL", "curl -sf -o /dev/null -w '%{http_code}' http://localhost:8983/solr/admin/info/system | grep -qE '^(200|401)$'"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # solr-init — one-shot container that configures Solr for Sitecore
+  #
+  # Runs after Solr is healthy and:
+  #   1. Uploads security.json to ZooKeeper (enables BasicAuth)
+  #   2. Uploads the Sitecore configset to ZooKeeper
+  #   3. Creates all 10 XM1 collections
+  #
+  # Re-run manually if needed:
+  #   docker compose run --rm solr-init
+  # ---------------------------------------------------------------------------
+  solr-init:
+    image: ${SOLR_IMAGE:-solr:8.11.2}
+    container_name: sitecore-solr-init
+    depends_on:
+      solr:
+        condition: service_healthy
+    environment:
+      ZK_HOST: "zookeeper:2181"
+      SOLR_ENDPOINT: "http://solr:8983/solr"
+      SOLR_CORE_PREFIX: "${SOLR_CORE_PREFIX:-sitecore}"
+      SOLR_REPLICAS: "${SOLR_REPLICAS:-1}"
+      SOLR_SHARDS: "${SOLR_SHARDS:-1}"
+      SOLR_ADMIN_USER: "${SOLR_ADMIN_USER:-admin}"
+      SOLR_ADMIN_PASSWORD: "${SOLR_ADMIN_PASSWORD:-admin}"
+      SITECORE_SOLR_USER: "${SITECORE_SOLR_USER:-sitecore}"
+      SITECORE_SOLR_PASSWORD: "${SITECORE_SOLR_PASSWORD:-SolrRocks}"
+      SECURITY_JSON_PATH: "/tmp/security.json"
+      CONFIGSET_DIR: "/configsets/Sitecore/conf"
+    volumes:
+      - type: bind
+        source: ../scripts/init-solr.sh
+        target: /scripts/init-solr.sh
+        read_only: true
+      - type: bind
+        source: ../configsets/Sitecore/conf
+        target: /configsets/Sitecore/conf
+        read_only: true
+      - type: bind
+        source: ./security.json
+        target: /tmp/security.json
+        read_only: true
+    command: ["/bin/bash", "/scripts/init-solr.sh"]
+
+volumes:
+  zookeeper-data:
+  zookeeper-datalog:
+  solr-data:
