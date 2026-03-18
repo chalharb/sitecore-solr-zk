@@ -1,0 +1,123 @@
+# =============================================================================
+# values.yaml — default values for the sitecore-solr Helm chart
+#
+# These defaults are suitable for a single-node local cluster (Docker Desktop).
+# Override per environment:
+#   Local:  helm install ... -f values-local.yaml   (or no -f, these are local defaults)
+#   AKS:    helm install ... -f values-aks.yaml
+# =============================================================================
+
+# -- Kubernetes namespace to deploy into
+namespace: sitecore-solr
+
+# -- Image pull policy for all containers
+imagePullPolicy: IfNotPresent
+
+# -----------------------------------------------------------------------------
+# ZooKeeper
+# -----------------------------------------------------------------------------
+zookeeper:
+  image: zookeeper:3.8
+  # Number of replicas. Must be 1 or an odd number >= 3.
+  # Use 1 for local dev, 3 for production.
+  replicaCount: 1
+
+  # Standalone mode must be true when replicaCount=1.
+  # Set to false when replicaCount >= 3.
+  standaloneEnabled: true
+
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "250m"
+
+  storage:
+    # StorageClass to use for ZooKeeper PVCs.
+    # local: "hostpath" (Docker Desktop) or "local-path" (Rancher Desktop / k3s)
+    # AKS:   "managed-premium"
+    storageClass: "hostpath"
+    dataSize: "500Mi"
+    datalogSize: "500Mi"
+
+  # Pod anti-affinity mode: "required" (AKS) or "preferred" (local)
+  antiAffinity: "preferred"
+
+# -----------------------------------------------------------------------------
+# Solr
+# -----------------------------------------------------------------------------
+solr:
+  image: solr:8.11.2
+  replicaCount: 1
+
+  # JVM heap — set to ~50% of the memory limit
+  javaMemory: "-Xms512m -Xmx768m"
+
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+  storage:
+    storageClass: "hostpath"
+    size: "5Gi"
+
+  antiAffinity: "preferred"
+
+  # Service type for the named Solr service.
+  # "ClusterIP"  — internal only (use kubectl port-forward locally, Ingress on AKS)
+  # "NodePort"   — exposes on nodePort below (Linux/minikube only)
+  serviceType: ClusterIP
+  nodePort: 30983
+
+# -----------------------------------------------------------------------------
+# Solr init job
+# -----------------------------------------------------------------------------
+solrInit:
+  # Collection name prefix
+  corePrefix: "sitecore"
+  # replicationFactor matches solr.replicaCount — override in values-aks.yaml
+  replicationFactor: 1
+  shardsPerCollection: 1
+
+# -----------------------------------------------------------------------------
+# Authentication
+# IMPORTANT: change these before deploying to AKS.
+# -----------------------------------------------------------------------------
+auth:
+  adminUser: "admin"
+  adminPassword: "admin"
+  sitecoreUser: "sitecore"
+  sitecorePassword: "SolrRocks"
+
+# -----------------------------------------------------------------------------
+# Ingress (AKS only — disabled by default)
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: "nginx"
+  host: "solr.example.com"
+  tlsSecretName: "solr-tls"
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+# -----------------------------------------------------------------------------
+# Configset — the Sitecore managed-schema and solrconfig.xml
+# These are embedded into a ConfigMap and mounted into the init job.
+# Override individual files by providing the content as a string value.
+# -----------------------------------------------------------------------------
+configset: {}
+# configset:
+#   managed-schema: |
+#     <?xml version="1.0" ...>
+#     ...
+#   solrconfig.xml: |
+#     <config>...

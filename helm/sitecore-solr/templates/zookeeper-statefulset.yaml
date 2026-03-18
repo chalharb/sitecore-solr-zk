@@ -1,0 +1,139 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-zookeeper
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Release.Name }}-zookeeper
+    {{- include "sitecore-solr.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.zookeeper.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-zookeeper
+  serviceName: {{ .Release.Name }}-zookeeper
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-zookeeper
+        {{- include "sitecore-solr.labels" . | nindent 8 }}
+    spec:
+      {{- if eq .Values.zookeeper.antiAffinity "required" }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values: [{{ .Release.Name }}-zookeeper]
+              topologyKey: kubernetes.io/hostname
+      {{- else }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: [{{ .Release.Name }}-zookeeper]
+                topologyKey: kubernetes.io/hostname
+      {{- end }}
+
+      terminationGracePeriodSeconds: 30
+
+      initContainers:
+        - name: zookeeper-id
+          image: {{ .Values.zookeeper.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              ID=$(( ${HOSTNAME##*-} + 1 ))
+              mkdir -p /data
+              echo "${ID}" > /data/myid
+              echo "ZooKeeper myid set to ${ID}"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+
+      containers:
+        - name: zookeeper
+          image: {{ .Values.zookeeper.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - name: client
+              containerPort: 2181
+            - name: server
+              containerPort: 2888
+            - name: leader-election
+              containerPort: 3888
+          env:
+            - name: ZOO_STANDALONE_ENABLED
+              value: {{ .Values.zookeeper.standaloneEnabled | quote }}
+            - name: ZOO_4LW_COMMANDS_WHITELIST
+              value: "mntr,conf,ruok"
+            - name: ZOO_SERVERS
+              value: {{ include "sitecore-solr.zkServers" . | quote }}
+            - name: ZOO_CFG_EXTRA
+              value: "quorumListenOnAllIPs=true electionPortBindRetry=0"
+          resources:
+            {{- toYaml .Values.zookeeper.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: datalog
+              mountPath: /datalog
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  OK=$(echo ruok | nc -w 2 127.0.0.1 2181)
+                  [ "$OK" = "imok" ]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  OK=$(echo ruok | nc -w 2 127.0.0.1 2181)
+                  [ "$OK" = "imok" ]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- if .Values.zookeeper.storage.storageClass }}
+        storageClassName: {{ .Values.zookeeper.storage.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.zookeeper.storage.dataSize }}
+    - metadata:
+        name: datalog
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- if .Values.zookeeper.storage.storageClass }}
+        storageClassName: {{ .Values.zookeeper.storage.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.zookeeper.storage.datalogSize }}

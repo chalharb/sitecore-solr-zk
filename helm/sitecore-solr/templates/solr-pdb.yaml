@@ -1,0 +1,15 @@
+{{- if gt (int .Values.solr.replicaCount) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-solr-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Release.Name }}-solr
+    {{- include "sitecore-solr.labels" . | nindent 4 }}
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-solr
+{{- end }}

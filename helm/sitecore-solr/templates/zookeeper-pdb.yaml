@@ -1,0 +1,15 @@
+{{- if gt (int .Values.zookeeper.replicaCount) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-zookeeper-pdb
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Release.Name }}-zookeeper
+    {{- include "sitecore-solr.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-zookeeper
+{{- end }}

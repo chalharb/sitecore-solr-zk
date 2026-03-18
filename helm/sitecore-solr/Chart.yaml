@@ -1,0 +1,16 @@
+apiVersion: v2
+name: sitecore-solr
+description: SolrCloud + ZooKeeper cluster for Sitecore 10.4.0 XM1
+type: application
+version: 0.1.0
+appVersion: "8.11.2"
+keywords:
+  - sitecore
+  - solr
+  - zookeeper
+  - solrcloud
+home: https://github.com/Sitecore/container-deployment
+sources:
+  - https://github.com/Sitecore/container-deployment
+maintainers:
+  - name: sitecore-solr

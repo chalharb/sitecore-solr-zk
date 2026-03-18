@@ -1,0 +1,144 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-solr
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Release.Name }}-solr
+    {{- include "sitecore-solr.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.solr.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-solr
+  serviceName: {{ .Release.Name }}-solr-headless
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-solr
+        {{- include "sitecore-solr.labels" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsUser: 1001
+        fsGroup: 1001
+        runAsNonRoot: true
+
+      {{- if eq .Values.solr.antiAffinity "required" }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values: [{{ .Release.Name }}-solr]
+              topologyKey: kubernetes.io/hostname
+      {{- else }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: [{{ .Release.Name }}-solr]
+                topologyKey: kubernetes.io/hostname
+      {{- end }}
+
+      terminationGracePeriodSeconds: 60
+
+      initContainers:
+        - name: wait-for-zookeeper
+          image: {{ .Values.solr.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          env:
+            - name: ZK_HOST
+              value: {{ .Release.Name }}-zookeeper-client.{{ .Values.namespace }}.svc.cluster.local:2181
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for ZooKeeper at ${ZK_HOST} ..."
+              host="${ZK_HOST%%:*}"
+              port="${ZK_HOST##*:}"
+              attempt=0
+              until echo "ruok" | nc -w 2 "${host}" "${port}" | grep -q "imok"; do
+                attempt=$(( attempt + 1 ))
+                if [ "${attempt}" -ge 60 ]; then
+                  echo "ZooKeeper did not become ready. Aborting."
+                  exit 1
+                fi
+                echo "  Not ready (${attempt}/60), retrying in 5s ..."
+                sleep 5
+              done
+              echo "ZooKeeper is ready."
+
+      containers:
+        - name: solr
+          image: {{ .Values.solr.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports:
+            - name: solr
+              containerPort: 8983
+          env:
+            # Override K8s auto-injected SOLR_PORT (injected as tcp://<ip>:8983)
+            - name: SOLR_PORT
+              value: "8983"
+            - name: ZK_HOST
+              value: {{ include "sitecore-solr.zkHost" . | quote }}
+            - name: SOLR_JAVA_MEM
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Release.Name }}-solr-config
+                  key: SOLR_JAVA_MEM
+            - name: SOLR_OPTS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Release.Name }}-solr-config
+                  key: SOLR_OPTS
+            - name: SOLR_MAX_FIELDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Release.Name }}-solr-config
+                  key: SOLR_MAX_FIELDS
+          resources:
+            {{- toYaml .Values.solr.resources | nindent 12 }}
+          volumeMounts:
+            - name: solr-data
+              mountPath: /var/solr
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - /opt/docker-solr/scripts/wait-for-solr.sh
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /solr/admin/info/system
+              port: 8983
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+  volumeClaimTemplates:
+    - metadata:
+        name: solr-data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- if .Values.solr.storage.storageClass }}
+        storageClassName: {{ .Values.solr.storage.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.solr.storage.size }}
