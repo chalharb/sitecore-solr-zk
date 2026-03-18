@@ -1,0 +1,168 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: solr-init-script
+  namespace: sitecore-solr
+  labels:
+    app: solr-init
+    app.kubernetes.io/part-of: sitecore-solr
+data:
+  # The init script is embedded here so the Job can use a plain solr:8.11.2
+  # image without needing a custom Docker image or an SCR login.
+  init-solr.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    ZK_HOST="${ZK_HOST:-zookeeper-client.sitecore-solr.svc.cluster.local:2181}"
+    SOLR_ENDPOINT="${SOLR_ENDPOINT:-http://solr.sitecore-solr.svc.cluster.local:8983/solr}"
+    SOLR_CORE_PREFIX="${SOLR_CORE_PREFIX:-sitecore}"
+    SOLR_REPLICAS="${SOLR_REPLICAS:-1}"
+    SOLR_SHARDS="${SOLR_SHARDS:-1}"
+    SOLR_ADMIN_USER="${SOLR_ADMIN_USER:-admin}"
+    SOLR_ADMIN_PASSWORD="${SOLR_ADMIN_PASSWORD:-admin}"
+    SECURITY_JSON_PATH="${SECURITY_JSON_PATH:-/tmp/security.json}"
+    CONFIGSET_DIR="${CONFIGSET_DIR:-/configsets/Sitecore/conf}"
+    CONFIGSET_NAME="Sitecore"
+    MAX_RETRIES=60
+    RETRY_INTERVAL=5
+
+    log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*"; }
+    zk_first() { echo "${ZK_HOST%%,*}"; }
+
+    wait_for_zookeeper() {
+      log "Waiting for ZooKeeper at ${ZK_HOST} ..."
+      local zk_host; zk_host="$(zk_first)"
+      local host="${zk_host%%:*}"
+      local port="${zk_host##*:}"
+      local attempt=0
+      until echo "ruok" | nc -w 2 "${host}" "${port}" 2>/dev/null | grep -q "imok"; do
+        attempt=$(( attempt + 1 ))
+        if [[ $attempt -ge $MAX_RETRIES ]]; then
+          log "ERROR: ZooKeeper not ready after ${MAX_RETRIES} attempts. Aborting."; exit 1
+        fi
+        log "  Not ready (${attempt}/${MAX_RETRIES}), retrying in ${RETRY_INTERVAL}s ..."; sleep "${RETRY_INTERVAL}"
+      done
+      log "ZooKeeper is ready."
+    }
+
+    wait_for_solr() {
+      log "Waiting for Solr at ${SOLR_ENDPOINT} ..."
+      local attempt=0
+      local http_code
+      until http_code=$(curl -s -o /dev/null -w '%{http_code}' \
+            "${SOLR_ENDPOINT}/admin/info/system" 2>/dev/null) && \
+            [[ "${http_code}" =~ ^(200|401)$ ]]; do
+        attempt=$(( attempt + 1 ))
+        if [[ $attempt -ge $MAX_RETRIES ]]; then
+          log "ERROR: Solr not ready after ${MAX_RETRIES} attempts. Aborting."; exit 1
+        fi
+        log "  Not ready (${attempt}/${MAX_RETRIES}, http=${http_code:-none}), retrying in ${RETRY_INTERVAL}s ..."; sleep "${RETRY_INTERVAL}"
+      done
+      log "Solr is ready (http=${http_code})."
+    }
+
+    wait_for_solr_open() {
+      log "Waiting for Solr to accept unauthenticated requests ..."
+      local attempt=0; local http_code
+      until http_code=$(curl -s -o /dev/null -w '%{http_code}' "${SOLR_ENDPOINT}/admin/info/system" 2>/dev/null) && [[ "${http_code}" == "200" ]]; do
+        attempt=$(( attempt + 1 ))
+        if [[ $attempt -ge $MAX_RETRIES ]]; then log "ERROR: Solr not open after ${MAX_RETRIES} attempts."; exit 1; fi
+        log "  Not open (${attempt}/${MAX_RETRIES}, http=${http_code:-none}), retrying in ${RETRY_INTERVAL}s ..."; sleep "${RETRY_INTERVAL}"
+      done
+      log "Solr is open (http=200)."
+    }
+
+    wait_for_zookeeper
+    wait_for_solr
+
+    if [[ -f "${SECURITY_JSON_PATH}" ]]; then
+      existing_http=$(curl -s -o /dev/null -w '%{http_code}' -u "${SOLR_ADMIN_USER}:${SOLR_ADMIN_PASSWORD}" "${SOLR_ENDPOINT}/admin/info/system" 2>/dev/null)
+      if [[ "${existing_http}" == "200" ]]; then
+        log "Solr auth already configured and credentials valid — skipping auth bootstrap."
+      else
+        log "Bootstrapping Solr BasicAuth ..."
+        /opt/solr/bin/solr zk cp "file:${SECURITY_JSON_PATH}" "zk:/security.json" -z "${ZK_HOST}"
+        log "  security.json (blockUnknown:false) uploaded."
+        wait_for_solr_open
+        log "  Setting users via Solr Authentication API ..."
+        set_resp=$(curl -s "${SOLR_ENDPOINT}/admin/authentication" -H 'Content-type:application/json' \
+          -d "{\"set-user\": {\"${SOLR_ADMIN_USER}\": \"${SOLR_ADMIN_PASSWORD}\", \"${SITECORE_SOLR_USER:-sitecore}\": \"${SITECORE_SOLR_PASSWORD:-SolrRocks}\"}}")
+        status=$(echo "${set_resp}" | grep -o '"status":[0-9]*' | head -1 | cut -d: -f2 || true)
+        if [[ "${status}" != "0" ]]; then log "  ERROR: set-user failed: ${set_resp}"; exit 1; fi
+        curl -s "${SOLR_ENDPOINT}/admin/authentication" -H 'Content-type:application/json' -d '{"set-property": {"blockUnknown": true}}' > /dev/null
+        curl -s -u "${SOLR_ADMIN_USER}:${SOLR_ADMIN_PASSWORD}" "${SOLR_ENDPOINT}/admin/authorization" -H 'Content-type:application/json' \
+          -d "{\"set-user-role\": {\"${SOLR_ADMIN_USER}\": \"admin\", \"${SITECORE_SOLR_USER:-sitecore}\": \"sitecore\"}}" > /dev/null
+        log "  Solr BasicAuth fully configured."
+      fi
+    else
+      log "WARNING: ${SECURITY_JSON_PATH} not found — Solr will run without authentication."
+    fi
+
+    log "Uploading configset '${CONFIGSET_NAME}' ..."
+    if /opt/solr/bin/solr zk ls /configs -z "${ZK_HOST}" 2>/dev/null | grep -q "${CONFIGSET_NAME}"; then
+      log "Configset '${CONFIGSET_NAME}' already exists — skipping upload."
+    else
+      /opt/solr/bin/solr zk upconfig -n "${CONFIGSET_NAME}" -d "${CONFIGSET_DIR}" -z "${ZK_HOST}"
+      log "Configset '${CONFIGSET_NAME}' uploaded."
+    fi
+
+    XM1_COLLECTIONS=(
+      "core_index"
+      "master_index"
+      "web_index"
+      "marketingdefinitions_master"
+      "marketingdefinitions_web"
+      "marketing_asset_index_master"
+      "marketing_asset_index_web"
+      "suggested_test_index"
+      "fxm_master_index"
+      "fxm_web_index"
+    )
+
+    log "Creating XM1 collections (prefix=${SOLR_CORE_PREFIX}_ replicas=${SOLR_REPLICAS} shards=${SOLR_SHARDS}) ..."
+
+    for suffix in "${XM1_COLLECTIONS[@]}"; do
+      collection="${SOLR_CORE_PREFIX}_${suffix}"
+      list_response=$(curl -s -u "${SOLR_ADMIN_USER}:${SOLR_ADMIN_PASSWORD}" \
+        "${SOLR_ENDPOINT}/admin/collections?action=LIST&wt=json")
+      if echo "${list_response}" | grep -q "\"${collection}\""; then
+        log "  [SKIP]   ${collection} already exists."; continue
+      fi
+      log "  [CREATE] ${collection} ..."
+      response=$(curl -s \
+        -u "${SOLR_ADMIN_USER}:${SOLR_ADMIN_PASSWORD}" \
+        "${SOLR_ENDPOINT}/admin/collections" \
+        --data-urlencode "action=CREATE" \
+        --data-urlencode "name=${collection}" \
+        --data-urlencode "collection.configName=${CONFIGSET_NAME}" \
+        --data-urlencode "numShards=${SOLR_SHARDS}" \
+        --data-urlencode "replicationFactor=${SOLR_REPLICAS}" \
+        --data-urlencode "maxShardsPerNode=10" \
+        --data-urlencode "property.update.autoCreateFields=false" \
+        --data-urlencode "wt=json")
+      status=$(echo "${response}" | grep -o '"status":[0-9]*' | head -1 | cut -d: -f2 || true)
+      if [[ "${status}" == "0" ]]; then
+        log "  [OK]     ${collection} created."
+      else
+        log "  [ERROR]  Failed to create ${collection}. Response: ${response}"; exit 1
+      fi
+    done
+
+    log "============================================================"
+    log "Sitecore 10.4.0 XM1 Solr initialisation complete."
+    log "Collections created with prefix: ${SOLR_CORE_PREFIX}_"
+    log "============================================================"
+---
+# ConfigMap that contains the Sitecore configset files.
+# The files under configsets/Sitecore/conf/ are embedded here via kustomize
+# configMapGenerator (see kustomization.yaml).  This manifest is a placeholder
+# that is replaced at build time by kustomize.
+#
+# If you are applying manifests manually without kustomize, create this
+# ConfigMap yourself:
+#   kubectl create configmap solr-configset-sitecore \
+#     --from-file=managed-schema=configsets/Sitecore/conf/managed-schema \
+#     --from-file=solrconfig.xml=configsets/Sitecore/conf/solrconfig.xml \
+#     --from-file=stopwords.txt=configsets/Sitecore/conf/stopwords.txt \
+#     --from-file=synonyms.txt=configsets/Sitecore/conf/synonyms.txt \
+#     -n sitecore-solr

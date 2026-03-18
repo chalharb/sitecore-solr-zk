@@ -1,0 +1,39 @@
+# Patch: full production resource requests/limits for AKS.
+# Size these to your AKS node pool SKU.
+# Recommended: at least Standard_D4s_v3 (4 vCPU, 16 GB) per node.
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zookeeper
+  namespace: sitecore-solr
+spec:
+  template:
+    spec:
+      containers:
+        - name: zookeeper
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: solr
+  namespace: sitecore-solr
+spec:
+  template:
+    spec:
+      containers:
+        - name: solr
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"

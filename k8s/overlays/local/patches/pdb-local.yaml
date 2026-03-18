@@ -1,0 +1,19 @@
+# Patch: relax PodDisruptionBudgets for single-replica local deployments.
+# A minAvailable: 2 or maxUnavailable: 1 PDB would block all pod evictions
+# when only 1 replica is running.
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: zookeeper-pdb
+  namespace: sitecore-solr
+spec:
+  maxUnavailable: 1
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: solr-pdb
+  namespace: sitecore-solr
+spec:
+  minAvailable: 0

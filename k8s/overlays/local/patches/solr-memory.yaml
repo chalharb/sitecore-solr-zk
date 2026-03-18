@@ -1,0 +1,10 @@
+# Patch: reduce Solr JVM heap for local development.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: solr-config
+  namespace: sitecore-solr
+data:
+  SOLR_JAVA_MEM: "-Xms512m -Xmx768m"
+  SOLR_MAX_FIELDS: "3000"
+  SOLR_OPTS: "-Dsolr.modules=jwt-auth"

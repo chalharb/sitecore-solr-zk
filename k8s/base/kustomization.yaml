@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: sitecore-solr
+
+resources:
+  - namespace.yaml
+  - zookeeper/service.yaml
+  - zookeeper/statefulset.yaml
+  - zookeeper/pdb.yaml
+  - solr/configmap.yaml
+  - solr/service.yaml
+  - solr/statefulset.yaml
+  - solr/pdb.yaml
+  - solr-init/configmap.yaml
+  - solr-init/job.yaml
+  - secrets/solr-auth.yaml
+  - secrets/security-json.yaml
+
+# Generate the Sitecore configset ConfigMap from the local files.
+# Kustomize will hash the contents into the name so Solr-init pods
+# automatically restart when the configset changes.
+configMapGenerator:
+  - name: solr-configset-sitecore
+    namespace: sitecore-solr
+    options:
+      disableNameSuffixHash: true
+    files:
+      - managed-schema=configsets/Sitecore/conf/managed-schema
+      - solrconfig.xml=configsets/Sitecore/conf/solrconfig.xml
+      - stopwords.txt=configsets/Sitecore/conf/stopwords.txt
+      - synonyms.txt=configsets/Sitecore/conf/synonyms.txt

@@ -1,0 +1,13 @@
+# JSON 6902 patches: set storageClassName and size on volumeClaimTemplates.
+# Strategic merge cannot patch StatefulSet volumeClaimTemplates (immutable list).
+#
+# Docker Desktop StorageClass options:
+#   - "hostpath"   — Docker Desktop for Mac/Windows (most common)
+#   - "local-path" — Rancher Desktop / k3s
+# Change the value below to match your local setup.
+- op: replace
+  path: /spec/volumeClaimTemplates/0/spec/storageClassName
+  value: hostpath
+- op: replace
+  path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+  value: 500Mi

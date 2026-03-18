@@ -1,0 +1,66 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Extends the base manifests with local Docker Desktop overrides.
+#
+# Deploy:
+#   kubectl apply -k k8s/overlays/local/
+#
+# Tear down:
+#   kubectl delete -k k8s/overlays/local/
+#
+# Re-run init job (e.g. after adding a collection):
+#   kubectl delete job solr-init -n sitecore-solr
+#   kubectl apply -k k8s/overlays/local/
+
+namespace: sitecore-solr
+
+resources:
+  - ../../base
+
+patches:
+  # Scale down to 1 replica for each StatefulSet
+  - path: patches/replicas.yaml
+
+  # Reduce CPU/memory resource requests
+  - path: patches/resources.yaml
+
+  # Reduce JVM heap
+  - path: patches/solr-memory.yaml
+    target:
+      kind: ConfigMap
+      name: solr-config
+
+  # Expose Solr on localhost:30983 via NodePort
+  - path: patches/solr-nodeport.yaml
+    target:
+      kind: Service
+      name: solr
+
+  # Relax PDBs for single-replica operation
+  - path: patches/pdb-local.yaml
+
+  # Switch anti-affinity from Required to Preferred (single-node cluster)
+  - path: patches/affinity-preferred.yaml
+
+  # Set replicationFactor=1 for init job
+  - path: patches/solr-init-replicas.yaml
+    target:
+      kind: Job
+      name: solr-init
+
+  # Single-node ZooKeeper: enable standalone mode and reduce server list to 1
+  - path: patches/zk-standalone.yaml
+    target:
+      kind: StatefulSet
+      name: zookeeper
+
+  # StorageClass + PVC size patches (JSON 6902 — VolumeClaimTemplates require RFC6902)
+  - path: patches/storage-zk.yaml
+    target:
+      kind: StatefulSet
+      name: zookeeper
+  - path: patches/storage-solr.yaml
+    target:
+      kind: StatefulSet
+      name: solr

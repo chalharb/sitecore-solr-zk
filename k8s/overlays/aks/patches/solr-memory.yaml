@@ -1,0 +1,11 @@
+# Patch: production JVM heap for Solr on AKS.
+# Xmx should be roughly 50-60% of the pod memory limit (4Gi limit → 2Gi heap).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: solr-config
+  namespace: sitecore-solr
+data:
+  SOLR_JAVA_MEM: "-Xms2g -Xmx2g"
+  SOLR_MAX_FIELDS: "3000"
+  SOLR_OPTS: "-Dsolr.modules=jwt-auth"

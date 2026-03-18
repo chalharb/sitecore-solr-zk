@@ -1,0 +1,13 @@
+# JSON 6902 patch: ZooKeeper storage for AKS (managed-premium = Azure Premium SSD)
+- op: replace
+  path: /spec/volumeClaimTemplates/0/spec/storageClassName
+  value: managed-premium
+- op: replace
+  path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+  value: 2Gi
+- op: replace
+  path: /spec/volumeClaimTemplates/1/spec/storageClassName
+  value: managed-premium
+- op: replace
+  path: /spec/volumeClaimTemplates/1/spec/resources/requests/storage
+  value: 2Gi

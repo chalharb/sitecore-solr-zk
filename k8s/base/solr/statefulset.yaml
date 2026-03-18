@@ -1,0 +1,163 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: solr
+  namespace: sitecore-solr
+  labels:
+    app: solr
+    app.kubernetes.io/part-of: sitecore-solr
+spec:
+  # Base replica count is 3 (production / AKS).
+  # The local overlay patches this down to 1.
+  replicas: 3
+  selector:
+    matchLabels:
+      app: solr
+  serviceName: solr-headless       # must match the headless service name
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+
+  template:
+    metadata:
+      labels:
+        app: solr
+        app.kubernetes.io/part-of: sitecore-solr
+    spec:
+      # Run Solr as the non-root user the official image expects (uid 1001).
+      securityContext:
+        runAsUser: 1001
+        fsGroup: 1001
+        runAsNonRoot: true
+
+      # Spread Solr pods across physical nodes.
+      # The local overlay relaxes this to Preferred.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values: [solr]
+              topologyKey: kubernetes.io/hostname
+
+      terminationGracePeriodSeconds: 60
+
+      # -----------------------------------------------------------------------
+      # Init container: wait for ZooKeeper to accept client connections before
+      # starting Solr.  Without this, Solr may fail to register in ZK and
+      # the pod will crash-loop.
+      # -----------------------------------------------------------------------
+      initContainers:
+        - name: wait-for-zookeeper
+          image: solr:8.11.2
+          env:
+            - name: ZK_HOST
+              value: "zookeeper-client.sitecore-solr.svc.cluster.local:2181"
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for ZooKeeper at ${ZK_HOST} ..."
+              host="${ZK_HOST%%:*}"
+              port="${ZK_HOST##*:}"
+              attempt=0
+              until echo "ruok" | nc -w 2 "${host}" "${port}" | grep -q "imok"; do
+                attempt=$(( attempt + 1 ))
+                if [ "${attempt}" -ge 60 ]; then
+                  echo "ZooKeeper did not become ready. Aborting."
+                  exit 1
+                fi
+                echo "  Not ready (${attempt}/60), retrying in 5s ..."
+                sleep 5
+              done
+              echo "ZooKeeper is ready."
+
+      containers:
+        - name: solr
+          # Sitecore 10.4.0 requires Solr 8.11.2
+          image: solr:8.11.2
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: solr
+              containerPort: 8983
+
+          env:
+            # Override the K8s auto-injected SOLR_PORT env var.
+            # K8s injects <SERVICE_NAME>_PORT=tcp://<ip>:<port> for every service
+            # in the namespace. The solr:8.11.2 entrypoint reads SOLR_PORT as a
+            # plain integer, so the injected value causes a startup failure.
+            - name: SOLR_PORT
+              value: "8983"
+
+            # SolrCloud: point all nodes at the ZooKeeper ensemble.
+            - name: ZK_HOST
+              value: "zookeeper-client.sitecore-solr.svc.cluster.local:2181"
+
+            # JVM memory and extra options from ConfigMap (patched per overlay)
+            - name: SOLR_JAVA_MEM
+              valueFrom:
+                configMapKeyRef:
+                  name: solr-config
+                  key: SOLR_JAVA_MEM
+
+            - name: SOLR_OPTS
+              valueFrom:
+                configMapKeyRef:
+                  name: solr-config
+                  key: SOLR_OPTS
+
+            # Field limit (consumed by solrconfig.xml at startup via system property)
+            - name: SOLR_MAX_FIELDS
+              valueFrom:
+                configMapKeyRef:
+                  name: solr-config
+                  key: SOLR_MAX_FIELDS
+
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1500m"
+
+          volumeMounts:
+            - name: solr-data
+              mountPath: /var/solr
+
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  /opt/docker-solr/scripts/wait-for-solr.sh
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+
+          readinessProbe:
+            httpGet:
+              path: /solr/admin/info/system
+              port: 8983
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+  volumeClaimTemplates:
+    - metadata:
+        name: solr-data
+      spec:
+        accessModes: [ReadWriteOnce]
+        # storageClassName left unset — uses cluster default.
+        # Overlays patch this:
+        #   local → standard (Docker Desktop)
+        #   aks   → managed-premium
+        resources:
+          requests:
+            storage: 10Gi

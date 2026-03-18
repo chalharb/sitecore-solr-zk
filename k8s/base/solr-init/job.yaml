@@ -1,0 +1,130 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: solr-init
+  namespace: sitecore-solr
+  labels:
+    app: solr-init
+    app.kubernetes.io/part-of: sitecore-solr
+  annotations:
+    # Re-run this job after changing collections or security config:
+    #   kubectl delete job solr-init -n sitecore-solr
+    #   kubectl apply -k k8s/overlays/<local|aks>/
+    helm.sh/hook: post-install,post-upgrade
+spec:
+  # Do not retry more than 3 times on failure
+  backoffLimit: 3
+  # Clean up completed/failed pods after 1 hour
+  ttlSecondsAfterFinished: 3600
+
+  template:
+    metadata:
+      labels:
+        app: solr-init
+        app.kubernetes.io/part-of: sitecore-solr
+    spec:
+      restartPolicy: Never
+
+      # The init job must complete after both ZK and Solr are running.
+      # The script itself handles the wait loop, so no initContainers needed here.
+
+      containers:
+        - name: solr-init
+          # Same image as the Solr StatefulSet — has the solr CLI and curl built in.
+          image: solr:8.11.2
+          imagePullPolicy: IfNotPresent
+
+          command: ["/bin/bash", "/scripts/init-solr.sh"]
+
+          env:
+            - name: ZK_HOST
+              value: "zookeeper-client.sitecore-solr.svc.cluster.local:2181"
+
+            - name: SOLR_ENDPOINT
+              value: "http://solr.sitecore-solr.svc.cluster.local:8983/solr"
+
+            - name: SOLR_CORE_PREFIX
+              value: "sitecore"
+
+            # SOLR_REPLICAS is patched per overlay:
+            #   local → "1"
+            #   aks   → "3"
+            - name: SOLR_REPLICAS
+              value: "3"
+
+            - name: SOLR_SHARDS
+              value: "1"
+
+            - name: SECURITY_JSON_PATH
+              value: "/tmp/security.json"
+
+            - name: CONFIGSET_DIR
+              value: "/configsets/Sitecore/conf"
+
+            - name: SOLR_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: solr-auth
+                  key: SOLR_ADMIN_USER
+
+            - name: SOLR_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: solr-auth
+                  key: SOLR_ADMIN_PASSWORD
+
+            - name: SITECORE_SOLR_USER
+              valueFrom:
+                secretKeyRef:
+                  name: solr-auth
+                  key: SITECORE_SOLR_USER
+
+            - name: SITECORE_SOLR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: solr-auth
+                  key: SITECORE_SOLR_PASSWORD
+
+          volumeMounts:
+            # Init script from ConfigMap
+            - name: init-script
+              mountPath: /scripts
+              readOnly: true
+
+            # Sitecore configset files from ConfigMap
+            - name: sitecore-configset
+              mountPath: /configsets/Sitecore/conf
+              readOnly: true
+
+            # security.json from Secret
+            - name: security-json
+              mountPath: /tmp
+              readOnly: true
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+      volumes:
+        - name: init-script
+          configMap:
+            name: solr-init-script
+            defaultMode: 0755
+            items:
+              - key: init-solr.sh
+                path: init-solr.sh
+
+        - name: sitecore-configset
+          configMap:
+            name: solr-configset-sitecore
+
+        - name: security-json
+          secret:
+            secretName: solr-security-json
+            items:
+              - key: security.json
+                path: security.json

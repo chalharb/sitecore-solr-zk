@@ -1,0 +1,47 @@
+# Ingress: exposes the Solr Admin UI externally via NGINX Ingress Controller.
+#
+# Prerequisites (run once per AKS cluster):
+#   helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+#   helm install ingress-nginx ingress-nginx/ingress-nginx \
+#     --namespace ingress-nginx --create-namespace
+#
+# TLS: replace the secretName and hosts with your actual domain and cert.
+# Use cert-manager with a ClusterIssuer for automatic Let's Encrypt certs:
+#   https://cert-manager.io/docs/tutorials/getting-started-aks-letsencrypt/
+#
+# IMPORTANT: The Solr Admin UI is protected by BasicAuth (admin:admin by default).
+# Before exposing externally, change the admin password in secrets/solr-auth.yaml
+# and regenerate the hash in secrets/security-json.yaml.
+# For Entra ID SSO in front of this ingress, see docs/entra-id-auth.md.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: solr-ingress
+  namespace: sitecore-solr
+  labels:
+    app: solr
+    app.kubernetes.io/part-of: sitecore-solr
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # Force HTTPS redirect
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  tls:
+    - hosts:
+        - solr.example.com   # REPLACE with your domain
+      secretName: solr-tls   # TLS secret (cert-manager or manual)
+  rules:
+    - host: solr.example.com   # REPLACE with your domain
+      http:
+        paths:
+          - path: /solr
+            pathType: Prefix
+            backend:
+              service:
+                name: solr
+                port:
+                  number: 8983

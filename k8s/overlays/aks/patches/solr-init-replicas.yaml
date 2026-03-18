@@ -1,0 +1,19 @@
+# Patch: set replicationFactor=3 for the init job on AKS.
+# Collections are created with 3 replicas across 3 Solr nodes.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: solr-init
+  namespace: sitecore-solr
+spec:
+  template:
+    spec:
+      containers:
+        - name: solr-init
+          env:
+            - name: SOLR_REPLICAS
+              value: "3"
+            - name: ZK_HOST
+              value: "zookeeper-client.sitecore-solr.svc.cluster.local:2181"
+            - name: SOLR_ENDPOINT
+              value: "http://solr.sitecore-solr.svc.cluster.local:8983/solr"

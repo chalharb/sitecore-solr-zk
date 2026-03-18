@@ -1,0 +1,52 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Extends the base manifests with AKS production overrides.
+#
+# Prerequisites:
+#   - AKS cluster with at least 3 nodes (Standard_D4s_v3 or larger recommended)
+#   - NGINX Ingress Controller installed (see patches/ingress.yaml)
+#   - kubectl context pointing at your AKS cluster
+#   - Secrets updated with production credentials (see secrets/ in base)
+#
+# Deploy:
+#   kubectl apply -k k8s/overlays/aks/
+#
+# Tear down:
+#   kubectl delete -k k8s/overlays/aks/
+#
+# Re-run init job:
+#   kubectl delete job solr-init -n sitecore-solr
+#   kubectl apply -k k8s/overlays/aks/
+
+namespace: sitecore-solr
+
+resources:
+  - ../../base
+  - patches/ingress.yaml
+
+patches:
+  # Full production CPU/memory requests
+  - path: patches/resources.yaml
+
+  # Production JVM heap
+  - path: patches/solr-memory.yaml
+    target:
+      kind: ConfigMap
+      name: solr-config
+
+  # Set replicationFactor=3 for init job
+  - path: patches/solr-init-replicas.yaml
+    target:
+      kind: Job
+      name: solr-init
+
+  # StorageClass + PVC size patches (JSON 6902)
+  - path: patches/storage-zk.yaml
+    target:
+      kind: StatefulSet
+      name: zookeeper
+  - path: patches/storage-solr.yaml
+    target:
+      kind: StatefulSet
+      name: solr

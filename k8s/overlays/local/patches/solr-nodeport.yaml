@@ -1,0 +1,22 @@
+# Patch: expose the Solr service as a NodePort.
+#
+# NOTE: Docker Desktop for Mac/Windows does NOT forward NodePort traffic to
+# localhost. Use kubectl port-forward instead:
+#   kubectl port-forward -n sitecore-solr svc/solr 8983:8983
+#   open http://localhost:8983/solr
+#
+# On Linux with minikube or a bare-metal cluster, NodePort 30983 IS accessible
+# at http://<node-ip>:30983/solr.
+apiVersion: v1
+kind: Service
+metadata:
+  name: solr
+  namespace: sitecore-solr
+spec:
+  type: NodePort
+  ports:
+    - name: solr
+      port: 8983
+      targetPort: 8983
+      nodePort: 30983
+      protocol: TCP

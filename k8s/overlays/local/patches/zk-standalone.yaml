@@ -1,0 +1,21 @@
+# Patch: configure ZooKeeper for single-node (standalone-equivalent) operation.
+#
+# With ZOO_STANDALONE_ENABLED=false and only 1 replica, ZooKeeper waits for
+# quorum and never becomes ready. This patch:
+#   - Sets ZOO_STANDALONE_ENABLED=true so 1 node can run without quorum
+#   - Reduces ZOO_SERVERS to a single entry matching the pod name
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zookeeper
+  namespace: sitecore-solr
+spec:
+  template:
+    spec:
+      containers:
+        - name: zookeeper
+          env:
+            - name: ZOO_STANDALONE_ENABLED
+              value: "true"
+            - name: ZOO_SERVERS
+              value: "server.1=zookeeper-0.zookeeper.sitecore-solr.svc.cluster.local:2888:3888;2181"
