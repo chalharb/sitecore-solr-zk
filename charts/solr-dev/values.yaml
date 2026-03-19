@@ -1,0 +1,60 @@
+# Dev environment: 1 Solr node + 1 ZooKeeper node
+# Designed for local development on Docker Desktop Kubernetes
+
+global:
+  namespace: solr
+
+zookeeper:
+  replicas: 1
+  image:
+    repository: pravega/zookeeper
+    tag: "0.2.15"
+    pullPolicy: IfNotPresent
+  storage:
+    size: 2Gi
+    storageClass: ""
+    reclaimPolicy: Delete
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+solr:
+  replicas: 1
+  image:
+    repository: solr
+    tag: "8.11.2"
+    pullPolicy: IfNotPresent
+  javaMem: "-Xms512m -Xmx1g"
+  storage:
+    size: 5Gi
+    storageClass: ""
+    reclaimPolicy: Delete
+  resources:
+    requests:
+      cpu: 200m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  auth:
+    adminPassword: admin
+    adminPasswordHash: "$2B$10$MLvYXyHu/APta3uiWe00lOygToLZwxLf20ihYOi7LafzuSnfBxK3G"
+    solrPasswordHash: "$2B$10$HPi8Wdmy4viHLw6brJV6/OJ9qiAkxJB92t2F/JrrcTWlsqLLFhyQ."
+    operPasswordHash: "$2B$10$UXt12IxaLFgYjMziitpvt.KKGPOoL82dxnL.3bNM.M7vdCnzOXp9u"
+    operPassword: oper-secret
+
+collections:
+  replicaOverride: 1
+
+configsetNames:
+  - sitecore
+  - hut
+
+setupJob:
+  image:
+    repository: solr
+    tag: "8.11.2"

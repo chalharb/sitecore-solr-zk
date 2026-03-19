@@ -1,0 +1,6 @@
+apiVersion: v2
+name: solr-base
+description: Shared library chart for Sitecore Solr + ZooKeeper on Kubernetes
+type: library
+version: 0.1.0
+appVersion: "8.11.2"

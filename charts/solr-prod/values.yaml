@@ -1,0 +1,61 @@
+# Prod environment: 3 Solr nodes + 3 ZooKeeper nodes
+# Designed for AKS deployment with persistent storage
+
+global:
+  namespace: solr
+
+zookeeper:
+  replicas: 3
+  image:
+    repository: pravega/zookeeper
+    tag: "0.2.15"
+    pullPolicy: IfNotPresent
+  storage:
+    size: 10Gi
+    storageClass: managed-premium
+    reclaimPolicy: Retain
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+solr:
+  replicas: 3
+  image:
+    repository: solr
+    tag: "8.11.2"
+    pullPolicy: IfNotPresent
+  javaMem: "-Xms1g -Xmx2g"
+  storage:
+    size: 50Gi
+    storageClass: managed-premium
+    reclaimPolicy: Retain
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  auth:
+    adminPassword: admin
+    adminPasswordHash: "$2B$10$MLvYXyHu/APta3uiWe00lOygToLZwxLf20ihYOi7LafzuSnfBxK3G"
+    solrPasswordHash: "$2B$10$HPi8Wdmy4viHLw6brJV6/OJ9qiAkxJB92t2F/JrrcTWlsqLLFhyQ."
+    operPasswordHash: "$2B$10$UXt12IxaLFgYjMziitpvt.KKGPOoL82dxnL.3bNM.M7vdCnzOXp9u"
+    operPassword: oper-secret
+
+collections:
+  # 2 replicas per collection for HA across 3 Solr nodes
+  replicaOverride: 2
+
+configsetNames:
+  - sitecore
+  - hut
+
+setupJob:
+  image:
+    repository: solr
+    tag: "8.11.2"

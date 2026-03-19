@@ -1,0 +1,6 @@
+dependencies:
+- name: solr-base
+  repository: file://../solr-base
+  version: 0.1.0
+digest: sha256:4f385f47ad372a3873c2c6fa4b316ee8fda2ff5d0922ac15f0ba7adaecf99f89
+generated: "2026-03-19T13:46:13.491804-05:00"

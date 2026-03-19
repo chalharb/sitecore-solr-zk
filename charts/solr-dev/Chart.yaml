@@ -1,0 +1,10 @@
+apiVersion: v2
+name: solr-dev
+description: Sitecore Solr (Dev) — 1 Solr + 1 ZooKeeper
+type: application
+version: 0.1.0
+appVersion: "8.11.2"
+dependencies:
+  - name: solr-base
+    version: "0.1.0"
+    repository: "file://../solr-base"

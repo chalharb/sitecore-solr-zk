@@ -1,0 +1,65 @@
+# Default values for solr-base library chart.
+# These are overridden by the wrapper charts (solr-dev, solr-prod).
+
+global:
+  namespace: solr
+
+zookeeper:
+  replicas: 1
+  image:
+    repository: pravega/zookeeper
+    tag: "0.2.15"
+    pullPolicy: IfNotPresent
+  storage:
+    size: 2Gi
+    storageClass: ""
+    reclaimPolicy: Delete
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+solr:
+  replicas: 1
+  image:
+    repository: solr
+    tag: "8.11.2"
+    pullPolicy: IfNotPresent
+  javaMem: "-Xms512m -Xmx1g"
+  storage:
+    size: 5Gi
+    storageClass: ""
+    reclaimPolicy: Delete
+  resources:
+    requests:
+      cpu: 200m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  auth:
+    adminPassword: admin
+    # bcrypt hash of "admin"
+    adminPasswordHash: "$2B$10$MLvYXyHu/APta3uiWe00lOygToLZwxLf20ihYOi7LafzuSnfBxK3G"
+    # bcrypt hash of "SolrRocks"
+    solrPasswordHash: "$2B$10$HPi8Wdmy4viHLw6brJV6/OJ9qiAkxJB92t2F/JrrcTWlsqLLFhyQ."
+    # bcrypt hash of "oper-secret"
+    operPasswordHash: "$2B$10$UXt12IxaLFgYjMziitpvt.KKGPOoL82dxnL.3bNM.M7vdCnzOXp9u"
+    operPassword: oper-secret
+
+collections:
+  replicaOverride: 1
+
+# List of configset names matching directories under settings/configsets/.
+# Must be set by the wrapper chart to match the actual configsets present.
+configsetNames:
+  - sitecore
+  - hut
+
+setupJob:
+  image:
+    repository: solr
+    tag: "8.11.2"

@@ -1,0 +1,31 @@
+{{/*
+Prod environment resources.
+Calls all named templates from the solr-base library chart.
+*/}}
+
+# --- ZooKeeper ---
+{{ include "solr-base.zookeeperCluster" . }}
+
+---
+# --- SolrCloud ---
+{{ include "solr-base.solrCloud" . }}
+
+---
+# --- Collections ConfigMap ---
+{{ include "solr-base.collectionsConfigMap" . }}
+
+---
+# --- Configset ConfigMaps ---
+{{ include "solr-base.configsetConfigMaps" . }}
+
+---
+# --- Setup RBAC (ServiceAccount, Role, RoleBinding) ---
+{{ include "solr-base.setupRbac" . }}
+
+---
+# --- Setup Script ConfigMap ---
+{{ include "solr-base.setupScriptConfigMap" . }}
+
+---
+# --- Setup Job ---
+{{ include "solr-base.setupJob" . }}
