@@ -1,0 +1,76 @@
+apiVersion: solr.apache.org/v1beta1
+kind: SolrCloud
+metadata:
+  name: sitecore-solr
+  namespace: solr
+spec:
+  replicas: 3   # Patched per environment
+
+  solrImage:
+    repository: solr
+    tag: "8.11.2"
+
+  # The operator provisions and manages ZooKeeper automatically.
+  # No separate ZK StatefulSet or operator install required.
+  zookeeperRef:
+    provided:
+      replicas: 3   # Patched per environment
+      image:
+        repository: pravega/zookeeper
+        tag: "0.2.15"
+      persistence:
+        reclaimPolicy: Retain
+        spec:
+          storageClassName: managed-premium
+          resources:
+            requests:
+              storage: 5Gi   # Patched per environment
+      zookeeperPodPolicy:
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    app: sitecore-solr-zookeeper
+                topologyKey: kubernetes.io/hostname
+
+  # Sitecore requirement: disable dynamic field creation
+  solrOpts: "-Dupdate.autoCreateFields=false"
+
+  solrJavaMem: "-Xms2g -Xmx4g"   # Patched per environment
+
+  customSolrKubeOptions:
+    podOptions:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  technology: solr-cloud
+              topologyKey: kubernetes.io/hostname
+      resources:
+        requests:
+          cpu: "1"
+          memory: "5Gi"   # Patched per environment
+        limits:
+          cpu: "2"
+          memory: "6Gi"   # Patched per environment
+
+  dataStorage:
+    persistent:
+      reclaimPolicy: Retain
+      pvcTemplate:
+        spec:
+          storageClassName: managed-premium
+          resources:
+            requests:
+              storage: 30Gi   # Patched per environment
+
+  solrTLS:
+    restartOnTLSSecretUpdate: true
+    pkcs12Secret:
+      name: solr-tls-pkcs12
+      key: keystore.p12
+    keyStorePasswordSecret:
+      name: solr-tls-keystore-password
+      key: password

@@ -1,0 +1,40 @@
+# 1 Solr + 1 ZooKeeper, reduced resources
+- op: replace
+  path: /spec/replicas
+  value: 1
+
+- op: replace
+  path: /spec/zookeeperRef/provided/replicas
+  value: 1
+
+- op: replace
+  path: /spec/zookeeperRef/provided/persistence/spec/resources/requests/storage
+  value: "2Gi"
+
+- op: replace
+  path: /spec/solrJavaMem
+  value: "-Xms512m -Xmx1g"
+
+- op: replace
+  path: /spec/customSolrKubeOptions/podOptions/resources/requests/memory
+  value: "1.5Gi"
+
+- op: replace
+  path: /spec/customSolrKubeOptions/podOptions/resources/limits/memory
+  value: "2Gi"
+
+- op: replace
+  path: /spec/dataStorage/persistent/pvcTemplate/spec/resources/requests/storage
+  value: "10Gi"
+
+# Relax anti-affinity to preferred — dev clusters may not have 3 separate nodes
+- op: replace
+  path: /spec/customSolrKubeOptions/podOptions/affinity/podAntiAffinity
+  value:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              technology: solr-cloud
+          topologyKey: kubernetes.io/hostname

@@ -1,0 +1,18 @@
+# Standalone ZooKeeper Operator install via the Pravega Helm chart.
+# Installed separately so the CRD lifecycle is independent of the
+# Solr Operator release (prevents CRD deletion on helm uninstall).
+crd:
+  create: true
+
+image:
+  repository: pravega/zookeeper-operator
+  tag: 0.2.15
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

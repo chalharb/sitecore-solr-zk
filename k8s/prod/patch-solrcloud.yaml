@@ -1,0 +1,19 @@
+# Prod uses base defaults (3+3) — add zone spread on top of hostname spread
+
+# Zone spread for Solr pods
+- op: add
+  path: /spec/customSolrKubeOptions/podOptions/affinity/podAntiAffinity/requiredDuringSchedulingIgnoredDuringExecution/-
+  value:
+    labelSelector:
+      matchLabels:
+        technology: solr-cloud
+    topologyKey: topology.kubernetes.io/zone
+
+# Zone spread for ZooKeeper pods
+- op: add
+  path: /spec/zookeeperRef/provided/zookeeperPodPolicy/affinity/podAntiAffinity/requiredDuringSchedulingIgnoredDuringExecution/-
+  value:
+    labelSelector:
+      matchLabels:
+        app: sitecore-solr-zookeeper
+    topologyKey: topology.kubernetes.io/zone

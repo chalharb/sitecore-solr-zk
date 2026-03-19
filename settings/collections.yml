@@ -1,0 +1,65 @@
+# settings/collections.yml
+# configset must match a directory name under settings/configsets/
+
+collections:
+  # Sitecore indexes
+  - name: sitecore_master_index
+    configset: sitecore
+    shards: 1
+    replicas: 1
+
+  - name: sitecore_web_index
+    configset: sitecore
+    shards: 1
+    replicas: 1
+
+  - name: sitecore_core_index
+    configset: sitecore
+    shards: 1
+    replicas: 1
+
+  - name: sitecore_marketingdefinitions_master
+    configset: sitecore
+    shards: 1
+    replicas: 1
+
+  - name: sitecore_marketingdefinitions_web
+    configset: sitecore
+    shards: 1
+    replicas: 1
+
+  - name: sitecore_marketing_asset_index_master
+    configset: sitecore
+    shards: 1
+    replicas: 1
+
+  - name: sitecore_marketing_asset_index_web
+    configset: sitecore
+    shards: 1
+    replicas: 1
+
+  - name: sitecore_testing_index
+    configset: sitecore
+    shards: 1
+    replicas: 1
+
+  - name: sitecore_suggested_test_index
+    configset: sitecore
+    shards: 1
+    replicas: 1
+
+  - name: sitecore_fxm_master_index
+    configset: sitecore
+    shards: 1
+    replicas: 1
+
+  - name: sitecore_fxm_web_index
+    configset: sitecore
+    shards: 1
+    replicas: 1
+
+  # HUT indexes — replace with actual names
+  - name: hut_index
+    configset: hut
+    shards: 1
+    replicas: 1

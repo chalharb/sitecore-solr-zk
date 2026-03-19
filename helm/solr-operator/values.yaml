@@ -1,0 +1,17 @@
+# Disable the embedded ZooKeeper Operator subchart — we install the
+# ZK operator as a separate Helm release (helm/zookeeper-operator/)
+# so the CRD lifecycle is independent. Setting "use: true" tells the
+# Solr Operator it can still create ZookeeperCluster resources.
+zookeeper-operator:
+  install: false
+  use: true
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

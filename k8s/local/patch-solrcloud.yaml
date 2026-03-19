@@ -1,0 +1,55 @@
+# Local (Docker Desktop / Rancher Desktop / minikube)
+# 1 Solr + 1 ZK, minimal resources, no affinity, hostPath-friendly storage
+
+- op: replace
+  path: /spec/replicas
+  value: 1
+
+- op: replace
+  path: /spec/zookeeperRef/provided/replicas
+  value: 1
+
+- op: replace
+  path: /spec/zookeeperRef/provided/persistence/spec/storageClassName
+  value: "hostpath"
+
+- op: replace
+  path: /spec/zookeeperRef/provided/persistence/spec/resources/requests/storage
+  value: "1Gi"
+
+- op: replace
+  path: /spec/solrJavaMem
+  value: "-Xms256m -Xmx512m"
+
+- op: replace
+  path: /spec/customSolrKubeOptions/podOptions/resources/requests/cpu
+  value: "250m"
+
+- op: replace
+  path: /spec/customSolrKubeOptions/podOptions/resources/requests/memory
+  value: "768Mi"
+
+- op: replace
+  path: /spec/customSolrKubeOptions/podOptions/resources/limits/cpu
+  value: "1"
+
+- op: replace
+  path: /spec/customSolrKubeOptions/podOptions/resources/limits/memory
+  value: "1Gi"
+
+- op: replace
+  path: /spec/dataStorage/persistent/pvcTemplate/spec/storageClassName
+  value: "hostpath"
+
+- op: replace
+  path: /spec/dataStorage/persistent/pvcTemplate/spec/resources/requests/storage
+  value: "2Gi"
+
+# Remove anti-affinity entirely — single-node cluster
+- op: replace
+  path: /spec/customSolrKubeOptions/podOptions/affinity
+  value: {}
+
+- op: replace
+  path: /spec/zookeeperRef/provided/zookeeperPodPolicy/affinity
+  value: {}

@@ -1,0 +1,42 @@
+# Keystore password for the PKCS12 TLS certificate.
+# In production, use a proper secret management solution.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: solr-tls-keystore-password
+  namespace: solr
+type: Opaque
+stringData:
+  password: "changeit"
+---
+# cert-manager Certificate that produces a PKCS12 keystore secret.
+# The Solr Operator references this via solrTLS.pkcs12Secret.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: solr-tls
+  namespace: solr
+spec:
+  secretName: solr-tls-pkcs12
+  issuerRef:
+    name: solr-internal-ca
+    kind: ClusterIssuer
+  commonName: sitecore-solr-solrcloud-common.solr
+  dnsNames:
+    - "sitecore-solr-solrcloud-common.solr"
+    - "sitecore-solr-solrcloud-common.solr.svc"
+    - "sitecore-solr-solrcloud-common.solr.svc.cluster.local"
+    - "sitecore-solr-solrcloud-headless.solr"
+    - "sitecore-solr-solrcloud-headless.solr.svc"
+    - "sitecore-solr-solrcloud-headless.solr.svc.cluster.local"
+    - "*.sitecore-solr-solrcloud-headless.solr"
+    - "*.sitecore-solr-solrcloud-headless.solr.svc"
+    - "*.sitecore-solr-solrcloud-headless.solr.svc.cluster.local"
+  duration: 8760h    # 1 year
+  renewBefore: 720h  # 30 days
+  keystores:
+    pkcs12:
+      create: true
+      passwordSecretRef:
+        name: solr-tls-keystore-password
+        key: password
