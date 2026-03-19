@@ -41,7 +41,35 @@ Solr 8.11.2 + ZooKeeper deployed via the Apache Solr Operator and Pravega ZooKee
 
 ## Quick Start — Local Development
 
-### 1. Install the Operators
+A helper script `solr.sh` automates all deployment steps. Run `./solr.sh --help` for full usage.
+
+### Using the Helper Script
+
+```bash
+# 1. Install operators (once per cluster)
+./solr.sh install-operators
+
+# 2. Deploy dev environment
+./solr.sh deploy-dev
+
+# 3. Open the Solr dashboard
+./solr.sh port-forward
+# Then open http://localhost:8983/solr/ — login: admin / admin
+
+# 4. Check status anytime
+./solr.sh status
+./solr.sh logs
+
+# 5. Tear down
+./solr.sh teardown
+```
+
+### Manual Steps (if you prefer not to use the script)
+
+<details>
+<summary>Click to expand manual steps</summary>
+
+#### 1. Install the Operators
 
 The Solr Operator must be installed cluster-wide before deploying any SolrCloud resources. It bundles the ZooKeeper Operator as a dependency.
 
@@ -65,13 +93,13 @@ kubectl get pods -n solr-operator
 
 You should see two pods running: `solr-operator-*` and `zookeeper-operator-*`.
 
-### 2. Build Helm Dependencies
+#### 2. Build Helm Dependencies
 
 ```bash
 helm dependency build charts/solr-dev
 ```
 
-### 3. Deploy Dev Environment
+#### 3. Deploy Dev Environment
 
 ```bash
 # Create the namespace
@@ -84,7 +112,7 @@ helm install sitecore charts/solr-dev --namespace solr
 kubectl get pods -n solr -w
 ```
 
-### 4. Verify
+#### 4. Verify
 
 ```bash
 # Check ZooKeeper is ready
@@ -105,14 +133,26 @@ kubectl port-forward svc/sitecore-solr-solrcloud-common -n solr 8983:80
 
 Open http://localhost:8983/solr/ and log in with `admin` / `admin`.
 
-### 5. Tear Down
+#### 5. Tear Down
 
 ```bash
 helm uninstall sitecore --namespace solr
 kubectl delete namespace solr
 ```
 
+</details>
+
 ## Deploying Dev to AKS
+
+```bash
+# Set up .env with your AKS details, then:
+./solr.sh connect-aks
+./solr.sh install-operators
+./solr.sh deploy-dev
+```
+
+<details>
+<summary>Manual steps</summary>
 
 ```bash
 # Set your Azure context
@@ -134,7 +174,19 @@ kubectl create namespace solr
 helm install sitecore charts/solr-dev --namespace solr
 ```
 
+</details>
+
 ## Deploying Prod to AKS
+
+```bash
+# Set up .env with your AKS details, then:
+./solr.sh connect-aks
+./solr.sh install-operators
+./solr.sh deploy-prod
+```
+
+<details>
+<summary>Manual steps</summary>
 
 ```bash
 # Set your Azure context
@@ -155,6 +207,8 @@ helm dependency build charts/solr-prod
 kubectl create namespace solr
 helm install sitecore charts/solr-prod --namespace solr
 ```
+
+</details>
 
 The prod chart uses:
 - `storageClass: managed-premium` — Azure Premium SSD. Change to `managed-csi-premium` for CSI driver, or remove to use the cluster default.
@@ -344,6 +398,7 @@ See `.env.template` for a list of environment-level variables.
 │       └── hut/conf/           # HUT configset
 ├── scripts/
 │   └── setup.sh                # Configset upload + collection creation
+├── solr.sh                     # Helper script (install, deploy, teardown, etc.)
 ├── .env.template               # Environment variable template
 ├── PLAN.md                     # Implementation plan
 └── CONVERSATION_LOG.md         # Decision log
