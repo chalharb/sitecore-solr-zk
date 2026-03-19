@@ -28,6 +28,9 @@ log() { echo "[setup] $(date '+%H:%M:%S') $*"; }
 
 # ---------------------------------------------------------------------------
 # Helper: Read K8s secret via the in-cluster API
+#
+# Uses perl for JSON parsing — available in the solr:8.11.2 image.
+# Avoids brittle sed regex that breaks with different JSON formatting.
 # ---------------------------------------------------------------------------
 read_k8s_secret_key() {
   local secret_name="$1"
@@ -39,21 +42,40 @@ read_k8s_secret_key() {
   local ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
   local api="https://kubernetes.default.svc"
 
-  local response
-  response=$(curl -sf --cacert "$ca" \
+  local json
+  json=$(curl -sf --cacert "$ca" \
     -H "Authorization: Bearer ${token}" \
-    "${api}/api/v1/namespaces/${namespace}/secrets/${secret_name}" 2>&1) || {
-    log "ERROR: Failed to read secret ${secret_name}: ${response}"
+    "${api}/api/v1/namespaces/${namespace}/secrets/${secret_name}") || {
+    log "ERROR: Failed to read secret ${secret_name}"
     return 1
   }
-  # Extract the base64-encoded value for the given key using simple parsing
-  # The secret data is JSON: {"data":{"key":"base64value",...}}
-  echo "$response" | \
-    sed -n 's/.*"'"${key}"'": *"\([^"]*\)".*/\1/p' | \
-    base64 -d 2>/dev/null || \
-  echo "$response" | \
-    sed -n 's/.*"'"${key}"'": *"\([^"]*\)".*/\1/p' | \
-    base64 --decode
+
+  # Parse the base64-encoded value from the K8s secret JSON using perl.
+  # This handles any JSON formatting (minified, pretty-printed, etc.)
+  # by first collapsing the JSON to a single line, then extracting the
+  # top-level "data" object's target key.
+  local b64_value
+  b64_value=$(echo "$json" | perl -0777 -ne '
+    # Extract the "data" block
+    if (/"data"\s*:\s*\{([^}]+)\}/s) {
+      my $data = $1;
+      # Extract the specific key value
+      if ($data =~ /"'"$key"'"\s*:\s*"([^"]+)"/) {
+        print $1;
+      }
+    }
+  ') || {
+    log "ERROR: Failed to parse key '${key}' from secret JSON"
+    return 1
+  }
+
+  if [ -z "$b64_value" ]; then
+    log "ERROR: Key '${key}' not found in secret ${secret_name}"
+    return 1
+  fi
+
+  # Decode — use base64 -d (GNU coreutils, available in Debian-based Solr image)
+  echo "$b64_value" | base64 -d
 }
 
 # ---------------------------------------------------------------------------
@@ -99,18 +121,21 @@ log "Reading bootstrap admin password from secret ${SOLR_BOOTSTRAP_SECRET} ..."
 ADMIN_PASSWORD=""
 retries=0
 while [ -z "$ADMIN_PASSWORD" ]; do
-  ADMIN_PASSWORD=$(read_k8s_secret_key "$SOLR_BOOTSTRAP_SECRET" "admin" 2>/dev/null) || true
-  if [ -z "$ADMIN_PASSWORD" ]; then
+  ADMIN_PASSWORD=$(read_k8s_secret_key "$SOLR_BOOTSTRAP_SECRET" "admin" 2>&1) || true
+
+  # Validate: password should be non-empty and not contain error messages
+  if [ -z "$ADMIN_PASSWORD" ] || [[ "$ADMIN_PASSWORD" == *"ERROR"* ]]; then
+    ADMIN_PASSWORD=""
     retries=$((retries + 1))
     if [ "$retries" -ge 60 ]; then
       log "ERROR: Could not read bootstrap secret after 60 attempts."
       exit 1
     fi
-    log "  Secret not ready yet, waiting..."
+    log "  Secret not ready yet, retrying... (attempt ${retries}/60)"
     sleep 5
   fi
 done
-log "Bootstrap password retrieved."
+log "Bootstrap password retrieved (length: ${#ADMIN_PASSWORD})."
 
 # ---------------------------------------------------------------------------
 # 4. Wait for Solr
@@ -122,6 +147,11 @@ until curl -sf -u "${SOLR_ADMIN_USER}:${ADMIN_PASSWORD}" \
   retries=$((retries + 1))
   if [ "$retries" -ge 120 ]; then
     log "ERROR: Solr not reachable after 120 attempts. Exiting."
+    log "  Debug: trying without auth ..."
+    curl -s "${SOLR_HOST}/solr/admin/info/system" 2>&1 | head -5 || true
+    log "  Debug: trying with auth ..."
+    curl -s -u "${SOLR_ADMIN_USER}:${ADMIN_PASSWORD}" \
+      "${SOLR_HOST}/solr/admin/info/system" 2>&1 | head -5 || true
     exit 1
   fi
   sleep 5
@@ -163,6 +193,7 @@ parse_collections() {
 existing=$(curl -sf -u "${SOLR_ADMIN_USER}:${ADMIN_PASSWORD}" \
   "${SOLR_HOST}/solr/admin/collections?action=LIST" 2>/dev/null || echo "")
 
+create_errors=0
 parse_collections | while IFS='|' read -r name configset shards replicas; do
   if [ -n "$REPLICA_OVERRIDE" ]; then
     replicas="$REPLICA_OVERRIDE"
@@ -176,12 +207,17 @@ parse_collections | while IFS='|' read -r name configset shards replicas; do
   fi
 
   log "  Creating collection '${name}' (configset=${configset}, shards=${shards}, replicas=${replicas}) ..."
-  response=$(curl -sf -u "${SOLR_ADMIN_USER}:${ADMIN_PASSWORD}" \
-    "${SOLR_HOST}/solr/admin/collections?action=CREATE&name=${name}&numShards=${shards}&replicationFactor=${replicas}&collection.configName=${configset}" 2>&1) || {
-    log "  ERROR creating collection '${name}': ${response}"
-    continue
-  }
-  log "  Collection '${name}' created."
+  response=$(curl -s -w "\n%{http_code}" -u "${SOLR_ADMIN_USER}:${ADMIN_PASSWORD}" \
+    "${SOLR_HOST}/solr/admin/collections?action=CREATE&name=${name}&numShards=${shards}&replicationFactor=${replicas}&collection.configName=${configset}" 2>&1)
+  http_code=$(echo "$response" | tail -1)
+  body=$(echo "$response" | sed '$d')
+
+  if [ "$http_code" = "200" ]; then
+    log "  Collection '${name}' created."
+  else
+    log "  ERROR creating collection '${name}' (HTTP ${http_code}): ${body}"
+    create_errors=$((create_errors + 1))
+  fi
 done
 
 # ---------------------------------------------------------------------------
@@ -189,14 +225,28 @@ done
 # ---------------------------------------------------------------------------
 if [ "$ADMIN_PASSWORD" != "$DESIRED_ADMIN_PASSWORD" ]; then
   log "Changing admin password to desired value ..."
-  response=$(curl -sf -u "${SOLR_ADMIN_USER}:${ADMIN_PASSWORD}" \
+  response=$(curl -s -w "\n%{http_code}" -u "${SOLR_ADMIN_USER}:${ADMIN_PASSWORD}" \
     -H "Content-Type: application/json" \
     -d "{\"set-user\": {\"admin\": \"${DESIRED_ADMIN_PASSWORD}\"}}" \
-    "${SOLR_HOST}/solr/admin/authentication" 2>&1) || {
-    log "WARNING: Failed to change admin password: ${response}"
-    log "You can change it manually via the Solr Security API."
-  }
-  log "Admin password changed."
+    "${SOLR_HOST}/solr/admin/authentication" 2>&1)
+  http_code=$(echo "$response" | tail -1)
+  body=$(echo "$response" | sed '$d')
+
+  if [ "$http_code" = "200" ]; then
+    # Verify the new password works
+    sleep 2
+    if curl -sf -u "${SOLR_ADMIN_USER}:${DESIRED_ADMIN_PASSWORD}" \
+      "${SOLR_HOST}/solr/admin/info/system" >/dev/null 2>&1; then
+      log "Admin password changed and verified successfully."
+    else
+      log "WARNING: Password change returned 200 but verification failed."
+      log "  The bootstrap password may still work. Check Solr logs."
+    fi
+  else
+    log "WARNING: Failed to change admin password (HTTP ${http_code}): ${body}"
+    log "  Current admin password is the bootstrap value from the K8s secret:"
+    log "  kubectl get secret ${SOLR_BOOTSTRAP_SECRET} -n \$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace) -o jsonpath='{.data.admin}' | base64 -d"
+  fi
 else
   log "Bootstrap password matches desired password, no change needed."
 fi

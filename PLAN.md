@@ -25,7 +25,7 @@ README.md                 # Full documentation
 | Configsets & collections | K8s Job (post-deploy) | Uploads configsets via `solr zk upconfig`, creates collections via Collections API |
 | Local K8s | Docker Desktop Kubernetes | Already available in user's environment |
 | Chart structure | Shared library chart + wrapper charts | DRY templates, separate values per environment |
-| Basic auth | Custom `security.json` with pre-hashed admin/admin | Deterministic credentials, works the same everywhere |
+| Basic auth | Operator-managed bootstrap + password change via setup Job | Operator handles security.json lifecycle; setup Job changes admin password to desired value |
 | Prod collection replicas | Override to `replicationFactor=2` | Better HA across 3 Solr nodes |
 | Operator versions | Solr Operator v0.9.1, ZK Operator v0.2.15 (bundled) | Latest versions supporting Solr 8.11.x |
 | Namespace strategy | Configurable, separate AKS clusters for dev/prod | User will manage cluster isolation externally |
@@ -37,7 +37,7 @@ README.md                 # Full documentation
 | Solr Operator | v0.9.1 | `apache-solr/solr-operator` from `https://solr.apache.org/charts` |
 | ZooKeeper Operator | v0.2.15 | Bundled with Solr Operator chart as a dependency |
 | Solr | 8.11.2 | Managed by SolrCloud CRD (`solr.apache.org/v1beta1`) |
-| ZooKeeper | 3.8.4 | Managed by ZookeeperCluster CRD (`zookeeper.pravega.io/v1beta1`) |
+| ZooKeeper | 3.7.1 (via pravega/zookeeper:0.2.15) | Managed by ZookeeperCluster CRD (`zookeeper.pravega.io/v1beta1`) |
 
 ## File Manifest
 

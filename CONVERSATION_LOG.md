@@ -169,6 +169,27 @@ Solr Operator v0.9.1 (includes ZK Operator v0.2.15)
 
 - Dev: 1 ZK + 1 Solr, replicationFactor=1, small storage
 - Prod: 3 ZK + 3 Solr, replicationFactor=2, large persistent storage
-- Auth: admin/admin via custom security.json
+- Auth: Operator-bootstrapped basic auth, setup Job changes admin password to "admin"
 - Local testing: Docker Desktop Kubernetes
 - AKS: Separate clusters for dev and prod
+
+---
+
+## Implementation Notes
+
+### Issues Encountered During Implementation
+
+1. **ZooKeeper image mismatch**: The Pravega ZK Operator requires the `pravega/zookeeper` image (which contains custom startup scripts), not the stock Apache `zookeeper` image. Using `zookeeper:3.8.4` caused CrashLoopBackOff because `/usr/local/bin/zookeeperStart.sh` doesn't exist in the stock image. Fixed by using `pravega/zookeeper:0.2.15` (which bundles ZK 3.7.1).
+
+2. **Custom security.json vs operator-managed auth**: The original plan was to provide a custom `security.json` with pre-hashed admin/admin credentials. However, the Solr Operator with `authenticationType: Basic` takes ownership of security.json and overwrites any custom version in ZooKeeper. The operator also configures probe endpoint exemptions that are necessary for health checks to work (without them, startup probes get HTTP 401). Solution: let the operator manage security.json bootstrapping, then change the admin password post-bootstrap via the Solr Security API in the setup Job.
+
+3. **Setup Job needs K8s API access**: Since the operator generates random bootstrap passwords and stores them in a K8s secret, the setup Job needs to read that secret. This required adding a ServiceAccount, Role, and RoleBinding to give the Job pod permission to read the specific bootstrap secret via the in-cluster Kubernetes API.
+
+### Final Auth Flow
+
+1. Solr Operator creates `security.json` with random passwords for `admin`, `solr`, `k8s-oper`
+2. Operator stores passwords in `sitecore-solr-solrcloud-security-bootstrap` secret
+3. Operator configures probe endpoints to not require auth (`probesRequireAuth: false`)
+4. Setup Job reads bootstrap admin password from K8s secret via in-cluster API
+5. Setup Job uses bootstrap password to authenticate all Solr API calls
+6. Setup Job changes admin password to desired value (default: "admin") via Security API
